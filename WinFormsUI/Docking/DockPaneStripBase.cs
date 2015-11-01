@@ -127,12 +127,12 @@ namespace WeifenLuo.WinFormsUI.Docking
         private DockPane m_dockPane;
         protected DockPane DockPane
         {
-            get    {    return m_dockPane;    }
+            get	{	return m_dockPane;	}
         }
 
         protected DockPane.AppearanceStyle Appearance
         {
-            get    {    return DockPane.Appearance;    }
+            get	{	return DockPane.Appearance;	}
         }
 
         private TabCollection m_tabs = null;
@@ -170,19 +170,19 @@ namespace WeifenLuo.WinFormsUI.Docking
 
         protected internal abstract int HitTest(Point point);
 
-        protected internal abstract GraphicsPath GetOutline(int index);
+        public abstract GraphicsPath GetOutline(int index);
 
         protected internal virtual Tab CreateTab(IDockContent content)
         {
             return new Tab(content);
         }
 
+        private Rectangle _dragBox = Rectangle.Empty;
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
 
-            int index = HitTest(e.Location);
-
+            int index = HitTest();
             if (index != -1)
             {
                 if (e.Button == MouseButtons.Middle)
@@ -201,9 +201,24 @@ namespace WeifenLuo.WinFormsUI.Docking
 
             if (e.Button == MouseButtons.Left)
             {
-                if (DockPane.DockPanel.AllowEndUserDocking && DockPane.AllowDockDragAndDrop && DockPane.ActiveContent.DockHandler.AllowEndUserDocking)
-                    DockPane.DockPanel.BeginDrag(DockPane.ActiveContent.DockHandler);
+                var dragSize = SystemInformation.DragSize;
+                _dragBox = new Rectangle(new Point(e.X - (dragSize.Width / 2),
+                                                e.Y - (dragSize.Height / 2)), dragSize);
             }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+
+            if (e.Button != MouseButtons.Left || _dragBox.Contains(e.Location)) 
+                return;
+
+            if (DockPane.ActiveContent == null)
+                return;
+
+            if (DockPane.DockPanel.AllowEndUserDocking && DockPane.AllowDockDragAndDrop && DockPane.ActiveContent.DockHandler.AllowEndUserDocking)
+                DockPane.DockPanel.BeginDrag(DockPane.ActiveContent.DockHandler);
         }
 
         protected bool HasTabPageContextMenu
@@ -236,7 +251,7 @@ namespace WeifenLuo.WinFormsUI.Docking
                 {
                     IDockContent content = Tabs[index].Content;
                     if (content.DockHandler.CheckDockState(!content.DockHandler.IsFloat) != DockState.Unknown)
-                        content.DockHandler.IsFloat = !content.DockHandler.IsFloat;    
+                        content.DockHandler.IsFloat = !content.DockHandler.IsFloat;	
                 }
 
                 return;
@@ -258,5 +273,117 @@ namespace WeifenLuo.WinFormsUI.Docking
                     DockPane.ActiveContent = content;
             }
         }
+
+        protected abstract Rectangle GetTabBounds(Tab tab);
+
+        internal static Rectangle ToScreen(Rectangle rectangle, Control parent)
+        {
+            if (parent == null)
+                return rectangle;
+
+            return new Rectangle(parent.PointToScreen(new Point(rectangle.Left, rectangle.Top)), new Size(rectangle.Width, rectangle.Height));
+        }
+
+        protected override AccessibleObject CreateAccessibilityInstance()
+        {
+            return new DockPaneStripAccessibleObject(this);
+        }
+
+        public class DockPaneStripAccessibleObject : Control.ControlAccessibleObject
+        {
+            private DockPaneStripBase _strip;
+            private DockState _state;
+
+            public DockPaneStripAccessibleObject(DockPaneStripBase strip)
+                : base(strip)
+            {
+                _strip = strip;
+            }
+
+            public override AccessibleRole Role
+            {
+                get
+                {
+                    return AccessibleRole.PageTabList;
+                }
+            }
+
+            public override int GetChildCount()
+            {
+                return _strip.Tabs.Count;
+            }
+
+            public override AccessibleObject GetChild(int index)
+            {
+                return new DockPaneStripTabAccessibleObject(_strip, _strip.Tabs[index], this);
+            }
+
+            public override AccessibleObject HitTest(int x, int y)
+            {
+                Point point = new Point(x, y);
+                foreach (Tab tab in _strip.Tabs)
+                {
+                    Rectangle rectangle = _strip.GetTabBounds(tab);
+                    if (ToScreen(rectangle, _strip).Contains(point))
+                        return new DockPaneStripTabAccessibleObject(_strip, tab, this);
+                }
+
+                return null;
+            }
+        }
+
+        protected class DockPaneStripTabAccessibleObject : AccessibleObject
+        {
+            private DockPaneStripBase _strip;
+            private Tab _tab;
+
+            private AccessibleObject _parent;
+
+            internal DockPaneStripTabAccessibleObject(DockPaneStripBase strip, Tab tab, AccessibleObject parent)
+            {
+                _strip = strip;
+                _tab = tab;
+
+                _parent = parent;
+            }
+
+            public override AccessibleObject Parent
+            {
+                get
+                {
+                    return _parent;
+                }
+            }
+
+            public override AccessibleRole Role
+            {
+                get
+                {
+                    return AccessibleRole.PageTab;
+                }
+            }
+
+            public override Rectangle Bounds
+            {
+                get
+                {
+                    Rectangle rectangle = _strip.GetTabBounds(_tab);
+                    return ToScreen(rectangle, _strip);
+                }
+            }
+
+            public override string Name
+            {
+                get
+                {
+                    return _tab.Content.DockHandler.TabText;
+                }
+                set
+                {
+                    //base.Name = value;
+                }
+            }
+        }
+ 
     }
 }
